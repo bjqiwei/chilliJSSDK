@@ -1,0 +1,587 @@
+﻿<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>live demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <!-- Styles -->
+    <link href="./assets/css/bootstrap.css" rel="stylesheet"/>
+    <link href="./assets/css/bootstrap-responsive.css" rel="stylesheet"/>
+    <script type="text/javascript" src="ChilliJSSDK.js"></script>
+    <!-- Javascript code -->
+    <script type="text/javascript">
+        var oReadyStateTimer;
+		var activeCall;
+		var otherCall;
+
+        window.onload = function () {
+            window.console && window.console.info && window.console.info("location=" + window.location);
+			userAgent.innerHTML = navigator.userAgent;
+            // Initialize call button
+            btnRegister.disabled = false;
+
+            oReadyStateTimer = setInterval(function () {
+                        if (document.readyState === "complete") {
+                            clearInterval(oReadyStateTimer);
+                            if(!ChilliJSSDK.Init()){
+								alert("not support webrtc");
+							}
+							else{
+								var audioInputSelect = document.querySelector('select#audioSource');
+								var deviceInfos = ChilliJSSDK.getMicrophone();
+								for (var i = 0; i !== deviceInfos.length; ++i) {
+									var deviceInfo = deviceInfos[i];
+									var option = document.createElement('option');
+									option.value = deviceInfo.deviceId;
+									option.text = deviceInfo.label || 'microphone ' + (audioInputSelect.length + 1);
+									audioInputSelect.appendChild(option);
+									
+								}
+								
+								audioInputSelect.onchange = function(){
+									var audioInputSelect = document.querySelector('select#audioSource');
+									ChilliJSSDK.setMicrophone(audioInputSelect.value);
+								};
+							}
+                        }
+                    },
+                    500);
+
+        }
+		
+		window.onunload  = function (){
+			//ChilliJSSDK.ClearCall();
+		}
+		
+		function getSeq(){
+			return '001';
+		}
+        //ui
+        function showNotifICall(s_number) {
+            txtCallStatus.innerHTML = '<i>来电振铃['+s_number+']</i>';
+        }
+
+        //ui
+        function uiOnConnectionEvent(b_connected, b_connecting) { // should be enum: connecting, connected, terminating, terminated
+            btnRegister.disabled = b_connected || b_connecting;
+            btnUnRegister.disabled = !b_connected && !b_connecting;
+            btnCall.disabled = !(b_connected);
+			btnCall.value = btnCall.innerHTML = '呼叫';
+			btnCall.onclick = function () {
+			    ChilliJSSDK.MakeCall(txtPhoneNumber.value,  txtCustomerID.value + '_' + txtAgentID.value );
+			}
+            btnHangUp.disabled = true;
+        }
+
+        //ui
+        function uiCallTerminated(s_description) {
+
+            btnHangUp.value = '挂机';
+            btnHoldRetrieve.value = '保持';
+			btnHoldRetrieve.onclick = function(){
+				ChilliJSSDK.HoldCall(ChilliJSSDK.callid);
+			}
+            btnCall.disabled = false;
+			btnCall.value = btnCall.innerHTML = '呼叫';
+			btnCall.onclick = function () {
+                ChilliJSSDK.MakeCall(txtPhoneNumber.value,txtCustomerID.value + '_' + txtAgentID.value );
+            };
+            btnHangUp.disabled = true;
+			document.getElementById("ringbacktone").pause();
+			document.getElementById("ringtone").pause();
+			
+
+            txtCallStatus.innerHTML = "<i>" + s_description + "</i>";
+            divCallOptions.style.opacity = 0;
+
+
+            setTimeout(function () {
+               txtCallStatus.innerHTML = '';
+            }, 2500);
+        }
+
+		ChilliJSSDK.onMakeCallFailed = function(e){
+			uiCallTerminated(e.reason + ":" + e.msg);
+		}
+		
+		var sRemoteNumber;
+        ChilliJSSDK.onReceived = function (e) {
+            btnHangUp.value = '挂机';
+            btnHangUp.disabled = false;
+			
+            btnCall.disabled = false;
+			btnCall.value = btnCall.innerHTML = '应答';
+			btnCall.onclick = function () {
+                ChilliJSSDK.AnswerCall(ChilliJSSDK.callid,txtCustomerID.value + '_' + txtAgentID.value);
+            };
+			
+            document.getElementById("ringtone").play();
+            sRemoteNumber = (e.caller || 'unknown');
+            showNotifICall(sRemoteNumber);
+        }
+
+
+        ChilliJSSDK.onCallCleared = function (e) {
+			
+			if(e.callid === otherCall)
+				otherCall = null;
+			if(e.callid === activeCall)
+				activeCall = null;
+				
+			if(otherCall || activeCall){
+				if (e.cause === ChilliJSSDK.Cause.Consultation){
+					txtCallStatus.innerHTML = "<i>" + "咨询失败" + e.reason + "</i>";
+				}
+				return;
+			}
+			
+            divGlassPanel.style.visibility = 'hidden';
+            uiCallTerminated("已挂机:" + e.reason);
+        }
+
+        ChilliJSSDK.onRegistered = function (msg) {
+			if(msg.reason == 200){
+				uiOnConnectionEvent(true, false);
+				txtRegStatus.innerHTML = "<i>" + "已登录" + "</i>";
+			}
+			else{
+				uiOnConnectionEvent(false, false);
+				txtRegStatus.innerHTML = "<i>" + msg.msg + "</i>";
+				uiCallTerminated();
+			}
+        }
+
+        ChilliJSSDK.onLogout = function () {
+            uiOnConnectionEvent(false, false);
+            txtRegStatus.innerHTML = "<i>" + "已退出" + "</i>";
+        }
+
+
+
+        ChilliJSSDK.onHeld = function (e) {
+            otherCall = e.callid;
+		    if(e.cause === ChilliJSSDK.Cause.Consultation){
+				activeCall = e.newCall;
+				btnConsultaion.value = '接回';
+				btnConsultaion.disabled = false;
+				btnConsultaion.onclick = function () {
+					ChilliJSSDK.ReconnectCall(activeCall,otherCall);
+				};
+				txtCallStatus.innerHTML = '<i>咨询通话保持</i>';
+				
+				btnHoldRetrieve.disabled = true;
+				btnTransfer.disabled = true;
+				return;
+			}
+			
+			if(e.cause === ChilliJSSDK.Cause.Alternate){
+				return;
+			}
+			
+            btnHoldRetrieve.value = '恢复';
+            btnHoldRetrieve.disabled = false;
+			btnHoldRetrieve.onclick = function () {
+				ChilliJSSDK.RetrieveCall(activeCall);
+			};
+			
+			btnConsultaion.disabled = true;
+			
+            txtCallStatus.innerHTML = '<i>通话保持</i>';
+        }
+
+		ChilliJSSDK.onOriginated = function(e){
+			activeCall = e.callid;
+			if(e.cause === ChilliJSSDK.Cause.Consultation){
+				txtCallStatus.innerHTML = '<i>咨询外呼中</i>';
+				btnCall.disabled = true;
+				btnHangUp.disabled = false;
+				return;
+			}
+			
+			txtCallStatus.innerHTML = '<i>外呼中</i>';
+			btnCall.disabled = true;
+            btnHangUp.disabled = false;
+		}
+		
+		ChilliJSSDK.onDelivered = function(e){
+			activeCall = e.callid;
+			if(e.cause === ChilliJSSDK.Cause.Consultation){
+				txtCallStatus.innerHTML = '<i>咨询对方振铃</i>';
+				btnCall.disabled = true;
+				btnHangUp.disabled = false;
+				return;
+			}
+			txtCallStatus.innerHTML = '<i>对方振铃</i>';
+			btnCall.disabled = true;
+            btnHangUp.disabled = false;
+		}
+		
+		ChilliJSSDK.onEstablished = function(e)
+		{	
+			activeCall = e.callid;
+			if(e.cause === ChilliJSSDK.Cause.Consultation){
+				txtCallStatus.innerHTML = '<i>咨询通话中</i>';
+				btnCall.disabled = true;
+				btnHangUp.disabled = false;
+				
+				btnAlternate.disabled = false;
+				btnAlternate.value='切换';
+				btnAlternate.onclick = function(){
+					ChilliJSSDK.AlternateCall(activeCall,otherCall);
+				}
+				
+				btnTransfer.disabled = false;
+				btnTransfer.value ='转接';
+				btnTransfer.onclick = function(){
+					ChilliJSSDK.TransferCall(otherCall, activeCall);
+				};
+				
+				btnConference.disabled = false;
+				btnConference.onclick = function(){
+					ChilliJSSDK.ConferenceCall(otherCall,activeCall);
+				}
+				
+				return;
+			}
+			txtCallStatus.innerHTML = '<i>通话中</i>';
+			btnCall.disabled = true;
+            btnHangUp.disabled = false;
+			
+			btnHoldRetrieve.disabled = false;
+			btnHoldRetrieve.value='保持';
+			btnHoldRetrieve.onclick = function(){
+				ChilliJSSDK.HoldCall(ChilliJSSDK.callid);
+			};
+			
+			btnTransfer.disabled = false;
+			btnTransfer.value ='转接';
+			btnTransfer.onclick = function(){
+				ChilliJSSDK.SingleStepTransferCall(activeCall, txtPhoneNumber.value, txtCustomerID.value + '_' + txtAgentID.value );
+			};
+
+			btnConsultaion.disabled = false;
+			btnConsultaion.value ='咨询';
+			btnConsultaion.onclick = function(){
+				ChilliJSSDK.ConsultationCall(activeCall, txtPhoneNumber.value, txtCustomerID.value + '_' + txtAgentID.value );
+			};
+			
+			btnAlternate.disabled = true;
+			
+			btnConference.disabled = false;
+			btnConference.onclick = function(){
+				ChilliJSSDK.SingleStepConference(activeCall,txtPhoneNumber.value,txtCustomerID.value + '_' + txtAgentID.value );
+			}
+			
+			document.getElementById("ringbacktone").pause();
+			document.getElementById("ringtone").pause();
+			divCallOptions.style.opacity = 1;
+		}
+		
+        ChilliJSSDK.onHeldFailed = function (e) {
+            btnHoldRetrieve.value = '保持';
+			btnHoldRetrieve.onclick = function(){
+				ChilliJSSDK.HoldCall(ChilliJSSDK.callid);
+			}
+            btnHoldRetrieve.disabled = false;
+            txtCallStatus.innerHTML = '<i>通话保持失败</i>';
+        }
+
+        ChilliJSSDK.onRetrieved = function (e) {
+		
+			activeCall = e.callid;
+			
+			if(e.cause === ChilliJSSDK.Cause.Alternate){
+				return;
+			}
+			
+			txtCallStatus.innerHTML = '<i>通话中</i>';
+			btnCall.disabled = true;
+            btnHangUp.disabled = false;
+			
+			btnHoldRetrieve.disabled = false;
+			btnHoldRetrieve.value='保持';
+			btnHoldRetrieve.onclick = function(){
+				ChilliJSSDK.HoldCall(activeCall);
+			};
+			
+			btnTransfer.disabled = false;
+			btnTransfer.value ='转接';
+			btnTransfer.onclick = function(){
+				ChilliJSSDK.SingleStepTransferCall(activeCall, txtPhoneNumber.value, txtCustomerID.value + '_' + txtAgentID.value );
+			};
+
+			btnConsultaion.disabled = false;
+			btnConsultaion.value ='咨询';
+			btnConsultaion.onclick = function(){
+				ChilliJSSDK.ConsultationCall(activeCall, txtPhoneNumber.value, txtCustomerID.value + '_' + txtAgentID.value );
+			};
+			
+            btnAlternate.disabled = true;
+			
+			btnConference.disabled = false;
+			btnConference.onclick = function(){
+				ChilliJSSDK.SingleStepConference(activeCall,txtPhoneNumber.value,txtCustomerID.value + '_' + txtAgentID.value );
+			}
+        }
+
+        ChilliJSSDK.onRetrieveFailed = function (e) {
+            btnHoldRetrieve.disabled = false;
+		    btnHoldRetrieve.onclick = function(){
+				ChilliJSSDK.RetrieveCall(ChilliJSSDK.callid);
+			}
+            txtCallStatus.innerHTML = '<i>恢复通话失败</i>';
+        }
+
+
+        ChilliJSSDK.onTransferred = function (e) {
+            txtCallStatus.innerHTML = '<i>呼叫转接结束</i>';
+            btnTransfer.disabled = false;
+        }
+
+        ChilliJSSDK.onTransferFailed = function (e) {
+            txtCallStatus.innerHTML = '<i>Call transfer failed</i>';
+            btnTransfer.disabled = false;
+        }
+
+		ChilliJSSDK.onConferenced = function(e){
+            txtCallStatus.innerHTML = '<i>会议中</i>';
+			btnHoldRetrieve.disabled = true;
+            btnTransfer.disabled = true;
+			btnConsultaion.disabled = true;
+			btnAlternate.disabled = true;
+			btnConference.disabled = true;
+		}
+		
+		ChilliJSSDK.onConferenceFailed = function(e){
+            txtCallStatus.innerHTML = '<i>会议失败 ' + e.reason + e.msg + '</i>';
+        }
+
+        function sipRegister() {
+            ChilliJSSDK.setLogLevel(txtLogLevel.value);
+            ChilliJSSDK.Login(txtRealm.value, txtPrivateIdentity.value, txtPublicIdentity.value, txtPassword.value, txtDisplayName.value, txtWebsocketUrl.value, txtICEServer.value);
+			uiOnConnectionEvent(false,true);
+        }
+		
+		var origerror = window.console.error;
+		var origwarn = window.console.warn;
+		window.console.error = function(c){
+			origerror.call(this,c);
+			var content = document.createElement("div");
+            content.style.color = "red";
+			content.innerHTML = c;
+			logconsole.appendChild(content);
+			logconsole.scrollTop = logconsole.scrollHeight;
+		}
+		
+		window.console.warn = function(c){
+			origwarn.call(this, c);
+			var content = document.createElement("div");
+            content.style.color = "blue";
+			content.innerHTML = c;
+			logconsole.appendChild(content);
+			logconsole.scrollTop = logconsole.scrollHeight;
+		}
+		
+    </script>
+</head>
+<body>
+<div class="container">
+    <div class="row-fluid">
+        <div class="span4 well">
+            <label style="width: 100%;" align="center" id="txtRegStatus"> </label>
+
+            <h2>
+                注册
+            </h2>
+            <br/>
+            <table style='width: 100%'>
+                <tr>
+                    <td>
+                        <label style="height: 100%">
+                            用户名:
+                        </label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtDisplayName" value="5002"/>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label style="height: 100%">
+                            SIP ID:
+                        </label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtPrivateIdentity" value="5002"/>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label style="height: 100%">
+                            SIP URI:
+                        </label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtPublicIdentity" value="sip:5002@h5test.acloudcc.com:7731">
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label style="height: 100%">密码:</label>
+                    </td>
+                    <td>
+                        <input type="password" style="width: 100%; height: 100%" id="txtPassword" value="12345678"/>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label style="height: 100%">域名:</label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtRealm" value="h5test.acloudcc.com:7731"/>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <label style="height: 100%">Websocket URL:</label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtWebsocketUrl" value="wss://h5test.acloudcc.com:7731"/>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <label style="height: 100%">ICE Servers:</label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtICEServer" value="[{ urls:'turn:h5test.acloudcc.com:35000', username: 'test',credential:'123456'}]"/>
+                    </td>
+                </tr>
+				<tr>
+                    <td>
+                        <label style="height: 100%">Log Level:</label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtLogLevel" value="debug"/>
+                    </td>
+                </tr>
+				<tr>
+                    <td>
+                        <label style="height: 100%">客户ID:</label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtCustomerID" value="101"/>
+                    </td>
+                </tr>
+				<tr>
+                    <td>
+                        <label style="height: 100%">用户ID:</label>
+                    </td>
+                    <td>
+                        <input type="text" style="width: 100%; height: 100%" id="txtAgentID" value="2001"/>
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="2" align="right">
+                        <input type="button" class="btn btn-success" id="btnRegister" value="登陆" disabled onclick='sipRegister();'/>
+                        &nbsp;
+                        <input type="button" class="btn btn-danger" id="btnUnRegister" value="注销" disabled onclick='ChilliJSSDK.Logout();'/>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        <div id="divCallCtrl" class="span7 well" style='display:table-cell; vertical-align:middle'>
+            <label style="width: 100%;" align="center" id="txtCallStatus">
+            </label>
+
+            <h2>
+                呼叫控制
+            </h2>
+            <br/>
+            <table style='width: 100%;'>
+                <tr>
+                    <td style="white-space:nowrap;">
+                        <input type="text" style="width: 100%; height:100%;" id="txtPhoneNumber" value="5001" placeholder="输入呼叫SIP URI"/>
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="1" align="right">
+                        <div class="btn-toolbar" style="margin: 0; vertical-align:middle">
+							<div class="btn-group">
+								<select id="audioSource" style="margin: 0; vertical-align:middle; height: 100%;" class="btn"></select>
+							</div>
+                            <div id="divBtnCallGroup" class="btn-group">
+                                <button id="btnCall" style="margin: 0; vertical-align:middle; height: 100%;" disabled class="btn btn-primary" data-toggle="dropdown">呼叫</button>
+                            </div>
+                            &nbsp;&nbsp;
+                            <div class="btn-group">
+                                <input type="button" id="btnHangUp" style="margin: 0; vertical-align:middle; height: 100%;" class="btn btn-primary" value="挂机" onclick='ChilliJSSDK.ClearCall();'
+                                       disabled/>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td align='center'>
+                        <div id='divCallOptions' class='call-options' style='opacity: 0; margin-top: 0px'>
+                            <input type="button" class="btn" style="" id="btnHoldRetrieve" value="保持" onclick='ChilliJSSDK.HoldCall(ChilliJSSDK.callid);'/> &nbsp;
+                            <input type="button" class="btn" style="" id="btnTransfer" value="转接"/> &nbsp;
+							<input type="button" class="btn" style="" id="btnConsultaion" value="咨询"/> &nbsp;
+							<input type="button" class="btn" style="" id="btnAlternate" value="切换"/> &nbsp;
+							<input type="button" class="btn" style="" id="btnConference" value="会议"/> &nbsp;
+							<input type="button" class="btn" style="" value="0" onclick='ChilliJSSDK.SendDTMF(null,"0");'/>
+							<input type="button" class="btn" style="" value="1" onclick='ChilliJSSDK.SendDTMF(null,"1");'/>
+							<input type="button" class="btn" style="" value="2" onclick='ChilliJSSDK.SendDTMF(null,"2");'/>
+							<input type="button" class="btn" style="" value="3" onclick='ChilliJSSDK.SendDTMF(null,"3");'/>
+							<input type="button" class="btn" style="" value="4" onclick='ChilliJSSDK.SendDTMF(null,"4");'/>
+							<input type="button" class="btn" style="" value="5" onclick='ChilliJSSDK.SendDTMF(null,"5");'/>
+							<input type="button" class="btn" style="" value="6" onclick='ChilliJSSDK.SendDTMF(null,"6");'/>
+							<input type="button" class="btn" style="" value="7" onclick='ChilliJSSDK.SendDTMF(null,"7");'/>
+							<input type="button" class="btn" style="" value="8" onclick='ChilliJSSDK.SendDTMF(null,"8");'/>
+							<input type="button" class="btn" style="" value="9" onclick='ChilliJSSDK.SendDTMF(null,"9");'/>
+							<input type="button" class="btn" style="" value="*" onclick='ChilliJSSDK.SendDTMF(null,"*");'/>
+							<input type="button" class="btn" style="" value="#" onclick='ChilliJSSDK.SendDTMF(null,"#");'/>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+		<div id="divLogCtrl" class="span7 well" >
+			<font>浏览器版本:</font><font id="userAgent"></font>
+			<div id="logconsole" style="overflow:scroll;width:100%;height:50%;font-size:12px;word-break:break-all;"></div>
+		</div>
+    </div>
+
+    <br/>
+</div>
+<!-- /container -->
+<!-- Glass Panel -->
+<div id='divGlassPanel' class='glass-panel' style='visibility:hidden'></div>
+
+
+<!-- Le javascript
+================================================== -->
+<!-- Placed at the end of the document so the pages load faster -->
+<script type="text/javascript" src="./assets/js/jquery.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-transition.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-alert.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-modal.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-dropdown.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-scrollspy.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-tab.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-tooltip.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-popover.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-button.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-collapse.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-carousel.js"></script>
+<script type="text/javascript" src="./assets/js/bootstrap-typeahead.js"></script>
+<script type="text/javascript" src="./assets/js/DateFormat.js"></script>
+
+<!-- Audios -->
+<audio id="ringtone" loop="true" src="sounds/ringtone.wav"></audio>
+<audio id="ringbacktone" loop="true" src="sounds/ringbacktone.wav"></audio>
+<audio id="dtmfTone" src="sounds/dtmf.wav"></audio>
+
+</body>
+</html>
